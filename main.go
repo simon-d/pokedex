@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
+
+	pokecache "github.com/simon-d/pokedex/internal"
 )
 
 type cliCommand struct {
@@ -33,10 +36,38 @@ type Location struct {
 	Url  string
 }
 
+var commands map[string]cliCommand
 var nextUrl string
 var prevUrl string
+var cache *pokecache.Cache
 
 func main() {
+	commands = map[string]cliCommand{
+		"exit": {
+			name:        "exit",
+			description: "Exit the Pokedex",
+			callback:    commandExit,
+		},
+		"help": {
+			name:        "help",
+			description: "Display Pokedex help",
+			callback:    commandHelp,
+		},
+		"map": {
+			name:        "map",
+			description: "Display list of 20 location areas. Each subsequent call will display the next 20 locations.",
+			callback:    commandMap,
+		},
+		"mapb": {
+			name:        "mapb",
+			description: "Display list of previous 20 location areas.",
+			callback:    commandMapBack,
+		},
+	}
+
+	interval, _ := time.ParseDuration("5s")
+	cache = pokecache.NewCache(interval)
+
 	reader := bufio.NewScanner(os.Stdin)
 	for {
 		fmt.Print("Pokedex >")
@@ -48,7 +79,7 @@ func main() {
 		cleanInput := cleanInput(input)
 
 		cmdMatch := false
-		for cmdKey, cmd := range commands() {
+		for cmdKey, cmd := range commands {
 			if cmdKey == cleanInput[0] {
 				cmd.callback(cmdConfig{})
 				cmdMatch = true
@@ -72,7 +103,7 @@ func commandHelp(config cmdConfig) error {
 	fmt.Println("Usage:")
 	fmt.Println()
 
-	for _, cmd := range commands() {
+	for _, cmd := range commands {
 		fmt.Printf("%s: %s\n", cmd.name, cmd.description)
 	}
 	return nil
@@ -84,46 +115,47 @@ func commandMap(config cmdConfig) error {
 	const baseUrl = "https://pokeapi.co/api/v2/location-area"
 
 	var url string
+	var data []byte
 	if nextUrl == "" {
 		url = baseUrl
 	} else {
 		url = nextUrl
 	}
 
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return err
+	if entry, exists := cache.Get(url); exists {
+		data = entry.Val
+	} else {
+
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return err
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+
+		defer resp.Body.Close()
+
+		data, err = io.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+
+		cache.Add(url, data)
 	}
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-
-	defer resp.Body.Close()
-
-	// parse the resp body into JSON data, or []byte
-	// fmt.Printf("Request Status: %d\n", resp.StatusCode)
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
-	// fmt.Println(string(data))
 	response := ApiResponse{}
-	err = json.Unmarshal(data, &response)
+	err := json.Unmarshal(data, &response)
 
 	if err != nil {
 		return err
 	}
-
-	// fmt.Printf("Count: %d\n", response.Count)
-	// fmt.Printf("Next: %s\n", response.Next)
-	// fmt.Printf("DataCount: %d\n", len(response.Results))
 
 	nextUrl = response.Next
-	prevUrl = response.Previous
+	prevUrl = url
+	// fmt.Printf("Next: %s, Prev: %s\n", nextUrl, prevUrl)
 	for i := 0; i < len(response.Results); i++ {
 		fmt.Println(response.Results[i].Name)
 	}
@@ -132,50 +164,44 @@ func commandMap(config cmdConfig) error {
 }
 
 func commandMapBack(config cmdConfig) error {
-	// Do it all but use the prev URL.
-	// If url is null, display 'you're on the first page'
-	// fmt.Printf("%s\n", nextUrl)
-	// fmt.Printf("%s\n", prevUrl)
 	if prevUrl == "" {
 		fmt.Printf("you're on the first page\n")
 		return nil
 	}
-	// Need to make a http request
 	client := &http.Client{}
+	var data []byte
 
-	req, err := http.NewRequest("GET", prevUrl, nil)
-	if err != nil {
-		return err
+	if entry, exists := cache.Get(prevUrl); exists {
+		data = entry.Val
+	} else {
+		req, err := http.NewRequest("GET", prevUrl, nil)
+		if err != nil {
+			return err
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+
+		defer resp.Body.Close()
+
+		data, err = io.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+
+		cache.Add(prevUrl, data)
 	}
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-
-	defer resp.Body.Close()
-
-	// parse the resp body into JSON data, or []byte
-	// fmt.Printf("Request Status: %d\n", resp.StatusCode)
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
-	// fmt.Println(string(data))
 	response := ApiResponse{}
-	err = json.Unmarshal(data, &response)
+	err := json.Unmarshal(data, &response)
 
 	if err != nil {
 		return err
 	}
 
-	// fmt.Printf("Count: %d\n", response.Count)
-	// fmt.Printf("Next: %s\n", response.Next)
-	// fmt.Printf("DataCount: %d\n", len(response.Results))
-
-	nextUrl = response.Next
+	nextUrl = prevUrl
 	prevUrl = response.Previous
 	for i := 0; i < len(response.Results); i++ {
 		fmt.Println(response.Results[i].Name)
@@ -201,27 +227,27 @@ func cleanInput(text string) []string {
 	return result
 }
 
-func commands() map[string]cliCommand {
-	return map[string]cliCommand{
-		"exit": {
-			name:        "exit",
-			description: "Exit the Pokedex",
-			callback:    commandExit,
-		},
-		"help": {
-			name:        "help",
-			description: "Display Pokedex help",
-			callback:    commandHelp,
-		},
-		"map": {
-			name:        "map",
-			description: "Display list of 20 location areas. Each subsequent call will display the next 20 locations.",
-			callback:    commandMap,
-		},
-		"mapb": {
-			name:        "mapb",
-			description: "Display list of previous 20 location areas.",
-			callback:    commandMapBack,
-		},
-	}
-}
+// func commands() map[string]cliCommand {
+// 	return map[string]cliCommand{
+// 		"exit": {
+// 			name:        "exit",
+// 			description: "Exit the Pokedex",
+// 			callback:    commandExit,
+// 		},
+// 		"help": {
+// 			name:        "help",
+// 			description: "Display Pokedex help",
+// 			callback:    commandHelp,
+// 		},
+// 		"map": {
+// 			name:        "map",
+// 			description: "Display list of 20 location areas. Each subsequent call will display the next 20 locations.",
+// 			callback:    commandMap,
+// 		},
+// 		"mapb": {
+// 			name:        "mapb",
+// 			description: "Display list of previous 20 location areas.",
+// 			callback:    commandMapBack,
+// 		},
+// 	}
+// }
