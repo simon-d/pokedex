@@ -17,7 +17,7 @@ type Cache struct {
 
 func NewCache(interval time.Duration) *Cache {
 	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	// defer ticker.Stop()
 
 	cache := Cache{
 		entries: map[string]cacheEntry{},
@@ -26,25 +26,26 @@ func NewCache(interval time.Duration) *Cache {
 	// interval call reap
 	go func() {
 		for range ticker.C {
+			// fmt.Println("reaping...")
 			cache.reapLoop(interval)
 		}
 	}()
 	return &cache
 }
 
-func (c *Cache) Get(key string) (cacheEntry, bool) {
+func (c *Cache) Get(key string) ([]byte, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	for cKey, cVal := range c.entries {
 		if cKey == key {
 			// fmt.Printf("Cache hit: %s\n", key)
-			return cVal, true
+			return cVal.Val, true
 		}
 	}
 
 	// fmt.Printf("Cache miss: %s\n", key)
-	return cacheEntry{}, false
+	return nil, false
 }
 
 func (c *Cache) Add(key string, val []byte) {
@@ -68,7 +69,8 @@ func (c *Cache) reapLoop(interval time.Duration) {
 		now := time.Now()
 		diff := now.Sub(entry.CreatedAt)
 
-		if diff > interval {
+		// fmt.Printf("Diff: %s\n", diff)
+		if diff >= interval {
 			delete(c.entries, key)
 		}
 	}

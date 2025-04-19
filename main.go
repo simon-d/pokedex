@@ -123,7 +123,7 @@ func commandMap(config cmdConfig) error {
 	}
 
 	if entry, exists := cache.Get(url); exists {
-		data = entry.Val
+		data = entry
 	} else {
 
 		req, err := http.NewRequest("GET", url, nil)
@@ -172,7 +172,7 @@ func commandMapBack(config cmdConfig) error {
 	var data []byte
 
 	if entry, exists := cache.Get(prevUrl); exists {
-		data = entry.Val
+		data = entry
 	} else {
 		req, err := http.NewRequest("GET", prevUrl, nil)
 		if err != nil {
