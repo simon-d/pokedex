@@ -113,6 +113,11 @@ func main() {
 			description: "Inspect one of your caught Pokemon",
 			callback:    commandInspect,
 		},
+		"pokedex": {
+			name:        "pokedex",
+			description: "Prints list of all caught pokemon",
+			callback:    commandPokedex,
+		},
 	}
 	pokemon = map[string]Pokemon{}
 
@@ -400,6 +405,20 @@ func commandInspect(param string, config cmdConfig) error {
 	fmt.Printf("Types:\n")
 	for _, val := range p.Types {
 		fmt.Printf(" - %s\n", val.Type.Name)
+	}
+
+	return nil
+}
+
+func commandPokedex(param string, config cmdConfig) error {
+	if len(pokemon) == 0 {
+		fmt.Println("You havent caught any pokemon")
+		return nil
+	}
+
+	fmt.Println("Your Pokedex:")
+	for _, p := range pokemon {
+		fmt.Printf(" - %s\n", p.Name)
 	}
 
 	return nil
