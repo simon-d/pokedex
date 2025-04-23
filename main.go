@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"strings"
@@ -36,7 +37,41 @@ type Location struct {
 	Url  string
 }
 
+type Pokemon struct {
+	Id             int
+	Name           string
+	BaseExperience int `json:"base_experience"`
+	Height         int
+	Weight         int
+	Order          int
+	IsDefault      bool `json:"is_default"`
+	Stats          []StatData
+	Types          []TypeData
+}
+
+type StatData struct {
+	BaseStat int `json:"base_stat"`
+	Effort   int
+	Stat     Stat
+}
+
+type Stat struct {
+	Name string
+	Url  string
+}
+
+type TypeData struct {
+	Slot int
+	Type Type
+}
+
+type Type struct {
+	Id   int
+	Name string
+}
+
 var commands map[string]cliCommand
+var pokemon map[string]Pokemon
 var nextUrl string
 var prevUrl string
 var cache *pokecache.Cache
@@ -62,12 +97,24 @@ func main() {
 			name:        "mapb",
 			description: "Display list of previous 20 location areas.",
 			callback:    commandMapBack,
-		}, "explore": {
+		},
+		"explore": {
 			name:        "explore",
 			description: "Accepts name of a location and lists Pokemon found there.",
 			callback:    commandExplore,
 		},
+		"catch": {
+			name:        "catch",
+			description: "Attempt to catch a pokemon",
+			callback:    commandCatch,
+		},
+		"inspect": {
+			name:        "inspect",
+			description: "Inspect one of your caught Pokemon",
+			callback:    commandInspect,
+		},
 	}
+	pokemon = map[string]Pokemon{}
 
 	interval, _ := time.ParseDuration("5s")
 	cache = pokecache.NewCache(interval)
@@ -278,6 +325,81 @@ func commandExplore(param string, config cmdConfig) error {
 	// fmt.Printf("%s\n", encounters)
 	for _, p := range pokemon {
 		fmt.Println(p)
+	}
+
+	return nil
+}
+
+func commandCatch(param string, config cmdConfig) error {
+	if len(param) == 0 {
+		fmt.Println("You must specify a target")
+		return nil
+	}
+	fmt.Printf("\nThrowing a Pokeball at %s...\n", param)
+
+	const apiUrl = "https://pokeapi.co/api/v2/pokemon/"
+	url := apiUrl + param
+	client := &http.Client{}
+	var data []byte
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode == http.StatusNotFound {
+		fmt.Printf("You missed, it's almost as if %s wasnt even something you could catch...\n", param)
+		return nil
+	}
+
+	defer resp.Body.Close()
+	data, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	var pokemonData Pokemon
+	err = json.Unmarshal(data, &pokemonData)
+	if err != nil {
+		return err
+	}
+	if rand.Intn(pokemonData.BaseExperience) > pokemonData.BaseExperience-pokemonData.BaseExperience/3 {
+		fmt.Println("You caught it!")
+		pokemon[param] = pokemonData
+	} else {
+		fmt.Printf("%s escaped!\n", param)
+	}
+
+	return nil
+}
+
+func commandInspect(param string, config cmdConfig) error {
+	if len(param) == 0 {
+		fmt.Println("You must specify a Pokemon to inspect.")
+		return nil
+	}
+
+	p, ok := pokemon[param]
+	if !ok {
+		fmt.Printf("You haven't caught %s yet\n", param)
+		return nil
+	}
+
+	fmt.Printf("Name: %s\n", p.Name)
+	fmt.Printf("Height: %d\n", p.Height)
+	fmt.Printf("Weight: %d\n", p.Weight)
+	fmt.Printf("Stats:\n")
+	for _, val := range p.Stats {
+		fmt.Printf(" - %s: %d\n", val.Stat.Name, val.BaseStat)
+	}
+	fmt.Printf("Types:\n")
+	for _, val := range p.Types {
+		fmt.Printf(" - %s\n", val.Type.Name)
 	}
 
 	return nil
