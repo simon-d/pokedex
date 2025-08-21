@@ -133,7 +133,9 @@ func main() {
 		input := reader.Text()
 
 		cleanInput := cleanInput(input)
-
+		if len(cleanInput) == 0 {
+			continue
+		}
 		cmdMatch := false
 		for cmdKey, cmd := range commands {
 			if cmdKey == cleanInput[0] {
